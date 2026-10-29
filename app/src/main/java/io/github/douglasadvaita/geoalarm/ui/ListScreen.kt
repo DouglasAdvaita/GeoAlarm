@@ -52,7 +52,7 @@ import io.github.douglasadvaita.geoalarm.service.WatchService
 import io.github.douglasadvaita.geoalarm.service.WatchState
 
 @Composable
-fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, onMap: () -> Unit, onTrips: () -> Unit) {
+fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, onMap: () -> Unit, onTrips: () -> Unit, onHistory: () -> Unit) {
     val alarms by vm.alarms.collectAsState()
     val isWatching by WatchState.isWatching.collectAsState()
     val enabledCount by WatchState.enabledCount.collectAsState()
@@ -95,6 +95,7 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onMap) { Text("🗺️ Mapa") }
                 TextButton(onClick = onTrips) { Text("Recorridos") }
+                TextButton(onClick = onHistory) { Text("Historial") }
             }
             Spacer(Modifier.height(4.dp))
             if (alarms.isEmpty()) {

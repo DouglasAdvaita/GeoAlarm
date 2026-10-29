@@ -185,13 +185,13 @@ fun TripsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(4.dp))
         val kb = days.sumOf { it.encoded.length } / 1024.0
         Text(
-            "${days.size} días · ${stays.size} permanencias · ${arrivals.size} llegadas · ≈ " +
+            "${days.size} días · ${stays.size} permanencias · ${arrivals.size} sonadas · ≈ " +
                 String.format(Locale.US, "%.1f", kb).replace('.', ',') + " KB",
             style = MaterialTheme.typography.bodySmall
         )
         if (arrivals.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text("Llegadas registradas", style = MaterialTheme.typography.titleSmall)
+            Text("Alarmas sonadas", style = MaterialTheme.typography.titleSmall)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(arrivals, key = { it.id }) { arrival ->
                     val time = java.time.Instant.ofEpochMilli(arrival.arrivedAtMs)

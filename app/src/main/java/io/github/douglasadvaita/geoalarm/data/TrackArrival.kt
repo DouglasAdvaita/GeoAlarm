@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+// Sonada de alarma: destino, nota, ubicación y momento exacto del aviso
 @Entity(tableName = "track_arrivals", indices = [Index("dayKey"), Index("arrivedAtMs")])
 data class TrackArrival(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

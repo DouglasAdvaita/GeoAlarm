@@ -16,6 +16,7 @@ import androidx.navigation.compose.rememberNavController
 import io.github.douglasadvaita.geoalarm.ui.AddEditScreen
 import io.github.douglasadvaita.geoalarm.ui.AllMapScreen
 import io.github.douglasadvaita.geoalarm.ui.AlarmViewModel
+import io.github.douglasadvaita.geoalarm.ui.HistoryScreen
 import io.github.douglasadvaita.geoalarm.ui.ListScreen
 import io.github.douglasadvaita.geoalarm.ui.TripsScreen
 import io.github.douglasadvaita.geoalarm.ui.theme.GeoAlarmTheme
@@ -98,13 +99,17 @@ fun AppNav(vm: AlarmViewModel) {
                 onAdd = { nav.navigate("add/0") },
                 onEdit = { id -> nav.navigate("add/$id") },
                 onMap = { nav.navigate("allmap") },
-                onTrips = { nav.navigate("trips") })
+                onTrips = { nav.navigate("trips") },
+                onHistory = { nav.navigate("history") })
         }
         composable("allmap") {
             AllMapScreen(vm, onBack = { nav.popBackStack() })
         }
         composable("trips") {
             TripsScreen(onBack = { nav.popBackStack() })
+        }
+        composable("history") {
+            HistoryScreen(onBack = { nav.popBackStack() })
         }
         composable("add/{id}") { back ->
             val id = back.arguments?.getString("id")?.toLongOrNull() ?: 0L

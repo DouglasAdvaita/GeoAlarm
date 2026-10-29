@@ -26,6 +26,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_arrivals WHERE dayKey BETWEEN :from AND :to ORDER BY arrivedAtMs")
     fun observeArrivals(from: Int, to: Int): Flow<List<TrackArrival>>
 
+    @Query("SELECT * FROM track_arrivals ORDER BY arrivedAtMs DESC")
+    fun observeAllArrivals(): Flow<List<TrackArrival>>
+
     @Query("SELECT * FROM track_points WHERE dayKey = :dayKey ORDER BY atMs")
     suspend fun getPoints(dayKey: Int): List<TrackPointRecord>
 
