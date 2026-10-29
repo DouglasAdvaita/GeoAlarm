@@ -3,7 +3,7 @@
 App Android (Kotlin + Jetpack Compose, sin layouts XML) de alarmas por geolocalización.
 Avisa con sonido, vibración, voz y pantalla completa cuando llegás a una parada o a un lugar.
 - Paquete: `io.github.douglasadvaita.geoalarm` · minSdk 26 · targetSdk 34 · 1 sola tabla Room (`alarms`)
-- Último commit de F0: repositorio `main`, autor local `Jorge <jorge@local>`, **sin remoto** (nada sale de la máquina)
+- Repositorio privado: `https://github.com/DouglasAdvaita/GeoAlarm` (rama `main`)
 
 ## ⇦ REGLA OBLIGATORIA DE RESPALDO
 
