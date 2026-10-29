@@ -3,7 +3,24 @@ package io.github.douglasadvaita.geoalarm.service
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+// Última ubicación conocida: la publica el servicio y la consume la pantalla de alarma
+data class LiveFix(
+    val lat: Double,
+    val lng: Double,
+    val speedMps: Float,
+    val accuracyM: Float,
+    val bearing: Float,
+    val atMs: Long
+)
+
 object WatchState {
+    private val _live = MutableStateFlow<LiveFix?>(null)
+    val live: StateFlow<LiveFix?> = _live
+
+    fun updateLive(fix: LiveFix) {
+        _live.value = fix
+    }
+
     private val _isWatching = MutableStateFlow(false)
     val isWatching: StateFlow<Boolean> = _isWatching
 

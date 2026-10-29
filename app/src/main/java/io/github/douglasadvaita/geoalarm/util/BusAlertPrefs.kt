@@ -11,16 +11,17 @@ object BusAlertPrefs {
     private const val K_BOOST = "boostVolume"
     private const val K_VIB = "strongVib"
     private const val K_TTS = "tts"
-    private const val K_FLASH = "flash"
     private const val K_TRIPLE = "triple"
+    private const val K_PROX = "proximity"
 
     data class Cfg(
         val ringtoneUri: String? = null,
         val boostVolume: Boolean = true,
         val strongVib: Boolean = true,
         val tts: Boolean = true,
-        val flash: Boolean = true,
-        val tripleConfirm: Boolean = true
+        val tripleConfirm: Boolean = true,
+        // Avisos de voz extra al acercarse (60%, 30% del radio y 50 m)
+        val proximity: Boolean = true
     )
 
     fun load(ctx: Context): Cfg {
@@ -30,8 +31,8 @@ object BusAlertPrefs {
             boostVolume = s.getBoolean(K_BOOST, true),
             strongVib = s.getBoolean(K_VIB, true),
             tts = s.getBoolean(K_TTS, true),
-            flash = s.getBoolean(K_FLASH, true),
-            tripleConfirm = s.getBoolean(K_TRIPLE, true)
+            tripleConfirm = s.getBoolean(K_TRIPLE, true),
+            proximity = s.getBoolean(K_PROX, true)
         )
     }
 
@@ -41,8 +42,8 @@ object BusAlertPrefs {
             .putBoolean(K_BOOST, c.boostVolume)
             .putBoolean(K_VIB, c.strongVib)
             .putBoolean(K_TTS, c.tts)
-            .putBoolean(K_FLASH, c.flash)
             .putBoolean(K_TRIPLE, c.tripleConfirm)
+            .putBoolean(K_PROX, c.proximity)
             .apply()
     }
 

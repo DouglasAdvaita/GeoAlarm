@@ -30,15 +30,18 @@ Antes de **modificar** cualquier archivo, hacé el respaldo. Con eso el `git com
 - No tocar `~/.gitconfig` ni configuración global de git. La identidad va por repo (`git config --local`).
 - No hacer `git commit`, `push` ni `checkout` sin que lo pida.
 
-## Pendientes conocidos (verificados 28/09/2026)
+## Pendientes conocidos (verificados 28/09/2026, avance 05/10/2026 chat GeoAlarm-Play)
 
-1. `WatchService`: al posponer 5 min, `wasOutside[id] = false` hace que la alarma **no vuelva a sonar**
-2. `BootReceiver.onReceive` está **vacío**: reiniciar el celu deja de vigilar hasta abrir la app
-3. El canal de notificación de la alarma no tiene **sonido** (solo vibración) y usa un ícono
-   adaptativo de app → **cuadrado blanco** en la barra
-4. `AppDatabase` usa `fallbackToDestructiveMigration()` → **borra la base** en cada cambio de esquema
-5. `MainActivity.autoStart()` crea un `CoroutineScope` sin cancelar y se llama en onCreate y onResume
-6. El switch "Repetir cada vez" no hace nada: `Alarm.repeat` se guarda y el servicio nunca lo lee
-7. `MODIFY_AUDIO_SETTINGS` está declarado y sí se usa; `CAMERA` (flash) y `WAKE_LOCK` están declarados
-   y **no se usan** → son permisos que sobran y hacen ruido en la tienda
-8. La base está en `version = 2` con `exportSchema = false`: no hay registro de qué cambió en v2
+1. `WatchService` snooze 5 min: corregido 05/10 (`wasOutside[id]=true` al posponer, permite re-sonar dentro del radio). Ver `WatchService.kt.bak`.
+2. `BootReceiver.onReceive` vacío: queda así a propósito en v1 (Play restringe auto-arranque en Android 14+). Al reabrir la app se reactiva solo.
+3. Canal alarma: sonido agregado 05/10 (`Notifications.kt` + `AudioAttributes.USAGE_ALARM`). Falta: ícono notificación monocromo (hoy `mipmap` sale cuadrado blanco).
+4. `AppDatabase` `fallbackToDestructiveMigration()` → borra base en cambio esquema. Pendiente: migración real + `exportSchema=true`. No tocar sin día verde.
+5. `MainActivity.autoStart()`: corregido 05/10 a `lifecycleScope` (antes `CoroutineScope` sin cancelar).
+6. Switch "Repetir cada vez": `Alarm.repeat` se guarda pero servicio siempre descansa hasta 6am. Pendiente: definir regla (repetir = sin descanso vs una vez).
+7. Permisos: `WAKE_LOCK` sacado 05/10 (sin uso). `MODIFY_AUDIO_SETTINGS` queda (sube volumen alarma). `CAMERA` ya no estaba en manifiesto.
+8. Base `version=2` `exportSchema=false`: pendiente documentar qué cambió en v2.
+
+## Para Play (memoria 05/10)
+- Falta: keystore release (hoy debug), App Bundle, `targetSdk 34→35`, ficha ES+EN, capturas, política privacidad ubicación, Data Safety, rating contenido.
+- Cuenta nueva: prueba cerrada 12 testers 14 días antes de producción.
+- `Issues` GitHub = lista pública de bugs/ideas. `Proyecto vive` = commits + issues cerrados visibles, no vigilancia. Sin guardia: solo responder cuando llega mail de issue.

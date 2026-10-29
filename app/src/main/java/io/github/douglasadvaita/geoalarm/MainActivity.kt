@@ -14,13 +14,17 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.douglasadvaita.geoalarm.ui.AddEditScreen
+import io.github.douglasadvaita.geoalarm.ui.AllMapScreen
 import io.github.douglasadvaita.geoalarm.ui.AlarmViewModel
 import io.github.douglasadvaita.geoalarm.ui.ListScreen
+import io.github.douglasadvaita.geoalarm.ui.TripsScreen
 import io.github.douglasadvaita.geoalarm.ui.theme.GeoAlarmTheme
 import io.github.douglasadvaita.geoalarm.util.Notifications
+import io.github.douglasadvaita.geoalarm.util.TrackPrefs
 import io.github.douglasadvaita.geoalarm.service.WatchService
+import io.github.douglasadvaita.geoalarm.receiver.TrackCompactionReceiver
 import io.github.douglasadvaita.geoalarm.data.AppDatabase
-import kotlinx.coroutines.CoroutineScope
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -35,6 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Notifications.ensureChannels(this)
+        TrackCompactionReceiver.schedule(this)
         askPerms()
         // Al abrir la app: reactiva vencidas y arranca vigilancia si hay habilitadas
         vm.reactivateExpired()
@@ -53,9 +58,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun autoStart() {
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             val enabled = AppDatabase.get(this@MainActivity).alarmDao().getEnabled()
-            if (enabled.isNotEmpty()) {
+            if (enabled.isNotEmpty() || TrackPrefs.enabled(this@MainActivity)) {
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(android.content.Intent(this@MainActivity, WatchService::class.java).apply {
@@ -89,7 +94,17 @@ fun AppNav(vm: AlarmViewModel) {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = "list") {
         composable("list") {
-            ListScreen(vm, onAdd = { nav.navigate("add/0") }, onEdit = { id -> nav.navigate("add/$id") })
+            ListScreen(vm,
+                onAdd = { nav.navigate("add/0") },
+                onEdit = { id -> nav.navigate("add/$id") },
+                onMap = { nav.navigate("allmap") },
+                onTrips = { nav.navigate("trips") })
+        }
+        composable("allmap") {
+            AllMapScreen(vm, onBack = { nav.popBackStack() })
+        }
+        composable("trips") {
+            TripsScreen(onBack = { nav.popBackStack() })
         }
         composable("add/{id}") { back ->
             val id = back.arguments?.getString("id")?.toLongOrNull() ?: 0L

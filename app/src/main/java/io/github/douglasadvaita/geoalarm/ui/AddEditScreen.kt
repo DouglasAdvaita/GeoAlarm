@@ -114,8 +114,9 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
             val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
             gpsOn = lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
         } catch (_: Exception) {}
-        // Centra mapa en mi posición al abrir (nuevo o editar sin centrar aún)
-        if (!centered) {
+        // Centra mapa en mi posición SOLO al crear nuevo (editar muestra el punto vigilado)
+        val isNew = editId == null || editId == 0L
+        if (isNew && !centered) {
             try {
                 LocationServices.getFusedLocationProviderClient(ctx).lastLocation
                     .addOnSuccessListener { loc: Location? ->
@@ -219,8 +220,8 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
                     BusSwitch("Volumen máximo", busCfg.boostVolume) { persistBus(busCfg.copy(boostVolume = it)) }
                     BusSwitch("Vibración SOS", busCfg.strongVib) { persistBus(busCfg.copy(strongVib = it)) }
                     BusSwitch("Voz parada", busCfg.tts) { persistBus(busCfg.copy(tts = it)) }
-                    BusSwitch("Flash", busCfg.flash) { persistBus(busCfg.copy(flash = it)) }
                     BusSwitch("3 toques p/apagar", busCfg.tripleConfirm) { persistBus(busCfg.copy(tripleConfirm = it)) }
+                    BusSwitch("Avisos por cercanía", busCfg.proximity) { persistBus(busCfg.copy(proximity = it)) }
                 }
             }
         }
@@ -292,13 +293,26 @@ private fun OsmPicker(modifier: Modifier = Modifier, lat: Double, lng: Double, r
                 setMultiTouchControls(true)
                 controller.setZoom(15.0)
                 controller.setCenter(GeoPoint(lat, lng))
+                // Un dedo mueve el mapa sin scrollear el formulario
+                setOnTouchListener { v, e ->
+                    when (e.action) {
+                        android.view.MotionEvent.ACTION_DOWN,
+                        android.view.MotionEvent.ACTION_MOVE ->
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                        android.view.MotionEvent.ACTION_UP,
+                        android.view.MotionEvent.ACTION_CANCEL ->
+                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    false // deja que osmdroid procese el gesto
+                }
                 mapView = this
             }
         },
         update = { mv ->
             mv.overlays.clear()
             val p = GeoPoint(lat, lng)
-            mv.controller.setCenter(p)
+            // No forzar setCenter acá: deja ver el punto vigilado + círculo sin saltar.
+            // El centrado lo hace LaunchedEffect(lat, lng) solo cuando cambia el punto.
             val marker = Marker(mv).apply {
                 position = p
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)

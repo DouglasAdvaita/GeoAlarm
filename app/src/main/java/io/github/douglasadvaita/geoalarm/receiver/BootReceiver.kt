@@ -7,6 +7,7 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            TrackCompactionReceiver.schedule(context)
             // v1: no auto-inicia vigilancia (transparente para Play).
             // Las alarmas quedan guardadas en Room y el usuario las reactiva.
         }
