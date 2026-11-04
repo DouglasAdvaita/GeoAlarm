@@ -1,4 +1,4 @@
-package io.github.douglasadvaita.geoalarm.service
+﻿package io.github.douglasadvaita.geoalarm.service
 
 import android.content.Context
 import android.location.Location
@@ -36,8 +36,15 @@ class TrackRecorder(context: Context) {
 
     fun onFix(loc: Location) {
         val acc = if (loc.hasAccuracy()) loc.accuracy else 999f
-        if (acc > 60f) return
-        val t = loc.time
+        if (acc > 30f) return // quieto bajo techo el error supera esto y dibuja falsos paseos
+        // Algunos providers devuelven 0 o una hora desfasada: usar la del sistema
+        // para no descartar todos los fixes ni guardarlos en un día equivocado.
+        val now = System.currentTimeMillis()
+        val t = if (loc.time > 0L && kotlin.math.abs(loc.time - now) < 24L * 3600_000L) {
+            loc.time
+        } else {
+            now
+        }
         if (t <= lastFixMs) return
 
         val p = TrackPoint(loc.latitude, loc.longitude, t)
@@ -57,6 +64,10 @@ class TrackRecorder(context: Context) {
             if (d / dtSec > 72.0) return // salto imposible (>260 km/h)
             if (d >= 3.0) distanceM += d // ignora ruido quieto
         }
+        updateStay(p) // la permanencia sí cuenta quieto (p. ej. en casa)
+        // Puerta anti-deriva: quieto el GPS salta; no guardar nada
+        // que no se aleje 15 m del último punto guardado.
+        if (prev != null && TrackCodec.distanceM(prev.lat, prev.lng, p.lat, p.lng) < 15.0) return
         raw.add(p)
         lastFixMs = t
         io.launch {
@@ -64,7 +75,6 @@ class TrackRecorder(context: Context) {
                 dao.insertPoint(TrackPointRecord(dayKey = k, lat = p.lat, lng = p.lng, atMs = p.atMs))
             } catch (_: Exception) {}
         }
-        updateStay(p)
     }
 
     // Permanencia: 10 min o más dentro de ~45 m; radio crece con el tiempo

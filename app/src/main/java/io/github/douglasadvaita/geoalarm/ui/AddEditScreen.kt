@@ -9,6 +9,7 @@ import android.location.LocationManager
 import android.media.RingtoneManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -42,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.gms.location.LocationServices
@@ -56,24 +64,28 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
 
 @SuppressLint("MissingPermission")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val scroll = rememberScrollState()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     var name by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(Alarm.TYPE_BUS) }
     var radius by remember { mutableIntStateOf(Alarm.DEFAULT_BUS_RADIUS) }
     var radiusTxt by remember { mutableStateOf(Alarm.DEFAULT_BUS_RADIUS.toString()) }
-    var repeat by remember { mutableStateOf(false) }
     var gpsOn by remember { mutableStateOf(true) }
     // Montevideo por defecto hasta ubicar
     var lat by remember { mutableDoubleStateOf(-34.9011) }
     var lng by remember { mutableDoubleStateOf(-56.1645) }
     var loaded by remember { mutableStateOf(editId == null || editId == 0L) }
     var centered by remember { mutableStateOf(false) }
+    var secDatos by remember { mutableStateOf(true) }
+    var secUbic by remember { mutableStateOf(true) }
+    var secBus by remember { mutableStateOf(true) }
 
     // Config global Bus: vale para todas hasta que otro Bus la cambie (solo Bus)
     var busCfg by remember { mutableStateOf(BusAlertPrefs.load(ctx)) }
@@ -134,7 +146,7 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
             if (a != null) {
                 name = a.name; message = a.message; type = a.type
                 radius = a.radiusMeters; radiusTxt = a.radiusMeters.toString()
-                lat = a.lat; lng = a.lng; repeat = a.repeat
+                lat = a.lat; lng = a.lng
                 centered = true
             }
             loaded = true
@@ -152,19 +164,38 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
     val sliderVal = radius.toFloat().coerceIn(sliderMin, sliderMax)
 
     // Todo el formulario con scroll para que entre en cualquier celular
-    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp)) {
+    Scaffold(
+        topBar = {
+            androidx.compose.material3.TopAppBar(
+                title = { Text(if (editId != null && editId > 0) "Editar alarma" else "Nueva alarma") },
+                navigationIcon = { TextButton(onClick = onDone) { Text("←", style = MaterialTheme.typography.headlineMedium) } }
+            )
+        },
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(pad).padding(16.dp)) {
+        SectionHeader("Datos", secDatos) { secDatos = !secDatos }
+        if (secDatos) {
         OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nombre (ej. Parada Facultad)") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = message, onValueChange = { message = it }, label = { Text("Nota (ej. comprar X, traer Y)") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        Row {
-            TextButton(onClick = { applyType(Alarm.TYPE_BUS) }) {
-                Text(if (isBus) "[x] Bus" else "[ ] Bus")
-            }
-            TextButton(onClick = { applyType(Alarm.TYPE_REMINDER) }) {
-                Text(if (!isBus) "[x] Nota" else "[ ] Nota")
-            }
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = isBus,
+                onClick = { applyType(Alarm.TYPE_BUS) },
+                shape = SegmentedButtonDefaults.itemShape(0, 2)
+            ) { Text("Bus") }
+            SegmentedButton(
+                selected = !isBus,
+                onClick = { applyType(Alarm.TYPE_REMINDER) },
+                shape = SegmentedButtonDefaults.itemShape(1, 2)
+            ) { Text("Nota") }
         }
+        Spacer(Modifier.height(8.dp))
+        }
+        SectionHeader("Ubicación", secUbic) { secUbic = !secUbic }
+        if (secUbic) {
         if (!gpsOn) {
             Text(
                 "GPS apagado: prende el GPS para ubicarte.",
@@ -195,10 +226,6 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Repetir cada vez", style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = repeat, onCheckedChange = { repeat = it })
-        }
         if (isBus) {
             Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(8.dp)) {
@@ -229,19 +256,11 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
         Spacer(Modifier.height(8.dp))
 
         // Mapa 80% del ancho, centrado, cuadrado con recorte
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val side = maxWidth * 0.8f
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                OsmPicker(
-                    modifier = Modifier.width(side).height(side).clipToBounds(),
-                    lat = lat, lng = lng, radius = radius,
-                    onPick = { la, ln -> lat = la; lng = ln }
-                )
-            }
-        }
+        OsmPicker(
+            modifier = Modifier.fillMaxWidth().height(240.dp).clipToBounds(),
+            lat = lat, lng = lng, radius = radius,
+            onPick = { la, ln -> lat = la; lng = ln }
+        )
         Spacer(Modifier.height(12.dp))
         Row {
             Button(onClick = {
@@ -253,13 +272,16 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
                 } catch (_: SecurityException) {}
             }) { Text("Usar mi posición") }
         }
+        }
         Spacer(Modifier.height(8.dp))
         Button(
             enabled = name.isNotBlank(),
             onClick = {
                 val r = radiusTxt.toIntOrNull()?.coerceIn(30, 9999) ?: 30
                 scope.launch {
-                    vm.save(name, message, lat, lng, r, type, repeat, editId = editId) { onDone() }
+                    vm.save(name, message, lat, lng, r, type, false, editId = editId) {
+                        scope.launch { snackbarHostState.showSnackbar("Guardado"); onDone() }
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -267,16 +289,32 @@ fun AddEditScreen(vm: AlarmViewModel, editId: Long?, onDone: () -> Unit) {
         TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
         Spacer(Modifier.height(32.dp))
     }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { onToggle() },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Text(if (expanded) "▾" else "▸")
+    }
 }
 
 @Composable
 private fun BusSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            modifier = Modifier.semantics { contentDescription = label }
+        )
     }
 }
 

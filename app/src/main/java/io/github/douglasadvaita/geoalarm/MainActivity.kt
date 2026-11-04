@@ -18,6 +18,7 @@ import io.github.douglasadvaita.geoalarm.ui.AllMapScreen
 import io.github.douglasadvaita.geoalarm.ui.AlarmViewModel
 import io.github.douglasadvaita.geoalarm.ui.HistoryScreen
 import io.github.douglasadvaita.geoalarm.ui.ListScreen
+import io.github.douglasadvaita.geoalarm.ui.SettingsScreen
 import io.github.douglasadvaita.geoalarm.ui.TripsScreen
 import io.github.douglasadvaita.geoalarm.ui.theme.GeoAlarmTheme
 import io.github.douglasadvaita.geoalarm.util.Notifications
@@ -100,7 +101,11 @@ fun AppNav(vm: AlarmViewModel) {
                 onEdit = { id -> nav.navigate("add/$id") },
                 onMap = { nav.navigate("allmap") },
                 onTrips = { nav.navigate("trips") },
-                onHistory = { nav.navigate("history") })
+                onHistory = { nav.navigate("history") },
+                onSettings = { nav.navigate("settings") })
+        }
+        composable("settings") {
+            SettingsScreen(onBack = { nav.popBackStack() })
         }
         composable("allmap") {
             AllMapScreen(vm, onBack = { nav.popBackStack() })

@@ -8,7 +8,7 @@ import io.github.douglasadvaita.geoalarm.util.TrackDates
 import io.github.douglasadvaita.geoalarm.util.TrackPoint
 
 object TrackCompactor {
-    suspend fun compactDay(context: Context, dayKey: Int) {
+    suspend fun compactDay(context: Context, dayKey: Int, deleteRaw: Boolean = true) {
         val dao = AppDatabase.get(context.applicationContext).trackDao()
         val records = dao.getPoints(dayKey)
         if (records.size < 2) return
@@ -33,7 +33,14 @@ object TrackCompactor {
                 encoded = TrackCodec.encode(compact)
             )
         )
-        dao.deletePoints(dayKey)
+        if (deleteRaw) dao.deletePoints(dayKey)
+    }
+
+    // Compacta el día de hoy al instante (para ver el recorrido recién hecho)
+    // sin borrar los puntos crudos: el compactado diario de las 05:00 los
+    // elimina recién al día siguiente, así no se pierde lo que siga grabando.
+    suspend fun compactToday(context: Context) {
+        compactDay(context, TrackDates.dayKey(System.currentTimeMillis()), deleteRaw = false)
     }
 
     suspend fun compactPreviousDay(context: Context) {

@@ -2,9 +2,12 @@ package io.github.douglasadvaita.geoalarm.ui
 
 import android.Manifest
 import android.content.Context
+import android.location.Location
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Looper
 import android.widget.Toast
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,12 +22,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -42,10 +52,16 @@ import androidx.core.content.ContextCompat
 import io.github.douglasadvaita.geoalarm.data.AppDatabase
 import io.github.douglasadvaita.geoalarm.data.TrackDay
 import io.github.douglasadvaita.geoalarm.data.TrackStay
+import io.github.douglasadvaita.geoalarm.service.TrackCompactor
 import io.github.douglasadvaita.geoalarm.service.WatchService
 import io.github.douglasadvaita.geoalarm.util.GpxExport
 import io.github.douglasadvaita.geoalarm.util.TrackCodec
 import io.github.douglasadvaita.geoalarm.util.TrackDates
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import io.github.douglasadvaita.geoalarm.util.TrackPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,17 +76,61 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun TripsScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDatabase.get(ctx).trackDao() }
     val scope = rememberCoroutineScope()
 
+    // Muestra el recorrido de hoy al instante: sin esto, el día recién aparece
+    // recién al día siguiente cuando corre el compactado diario de las 05:00.
+    LaunchedEffect(Unit) {
+        TrackCompactor.compactToday(ctx)
+    }
+
     val today = LocalDate.now()
     var anchor by remember { mutableStateOf(today) }
     var monthMode by remember { mutableStateOf(false) }
     var tracking by remember { mutableStateOf(TrackPrefs.enabled(ctx)) }
     var exporting by remember { mutableStateOf(false) }
+    var myLat by remember { mutableStateOf<Double?>(null) }
+    var myLng by remember { mutableStateOf<Double?>(null) }
+    // Posición en vivo mientras la pantalla está abierta (se corta al salir)
+    DisposableEffect(ctx, tracking) {
+        var cb: LocationCallback? = null
+        val hasPerm = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (tracking && hasPerm) {
+            try {
+                val fused = LocationServices.getFusedLocationProviderClient(ctx)
+                fused.lastLocation.addOnSuccessListener { loc: Location? ->
+                    if (loc != null) { myLat = loc.latitude; myLng = loc.longitude }
+                }
+                cb = object : LocationCallback() {
+                    override fun onLocationResult(r: LocationResult) {
+                        r.lastLocation?.let { myLat = it.latitude; myLng = it.longitude }
+                    }
+                }
+                val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
+                    .setMinUpdateDistanceMeters(5f)
+                    .build()
+                fused.requestLocationUpdates(req, cb as LocationCallback, Looper.getMainLooper())
+            } catch (_: SecurityException) { cb = null }
+        }
+        onDispose {
+            try {
+                cb?.let { LocationServices.getFusedLocationProviderClient(ctx).removeLocationUpdates(it) }
+            } catch (_: Exception) {}
+        }
+    }
+    // Recompacta hoy cada 30 s: la línea del día crece sola en el mapa
+    LaunchedEffect(tracking) {
+        if (!tracking) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(30_000L)
+            try { TrackCompactor.compactToday(ctx) } catch (_: Exception) {}
+        }
+    }
 
     val range = if (monthMode) TrackDates.monthRange(anchor) else TrackDates.weekRange(anchor)
     val fromKey = range.first
@@ -78,8 +138,6 @@ fun TripsScreen(onBack: () -> Unit) {
     val days by remember(fromKey, toKey) { dao.observeDays(fromKey, toKey) }
         .collectAsState(initial = emptyList())
     val stays by remember(fromKey, toKey) { dao.observeStays(fromKey, toKey) }
-        .collectAsState(initial = emptyList())
-    val arrivals by remember(fromKey, toKey) { dao.observeArrivals(fromKey, toKey) }
         .collectAsState(initial = emptyList())
 
     val label = if (monthMode) {
@@ -128,11 +186,15 @@ fun TripsScreen(onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Recorridos", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = onBack) { Text("Volver") }
+    Scaffold(
+        topBar = {
+            androidx.compose.material3.TopAppBar(
+                title = { Text("Recorridos") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("←", style = MaterialTheme.typography.headlineMedium) } }
+            )
         }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Switch(checked = tracking, onCheckedChange = { toggleTracking(it) })
             Spacer(Modifier.width(8.dp))
@@ -173,43 +235,18 @@ fun TripsScreen(onBack: () -> Unit) {
             }
         }
         TripsMap(
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            modifier = Modifier.fillMaxWidth().height(220.dp),
             days = days,
             stays = stays,
-            rangeKey = "$fromKey-$toKey"
+            rangeKey = "$fromKey-$toKey",
+            myLat = myLat,
+            myLng = myLng
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(days, key = { it.dayKey }) { d -> LegendChip(d) }
         }
-        Spacer(Modifier.height(4.dp))
-        val kb = days.sumOf { it.encoded.length } / 1024.0
-        Text(
-            "${days.size} días · ${stays.size} permanencias · ${arrivals.size} sonadas · ≈ " +
-                String.format(Locale.US, "%.1f", kb).replace('.', ',') + " KB",
-            style = MaterialTheme.typography.bodySmall
-        )
-        if (arrivals.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text("Alarmas sonadas", style = MaterialTheme.typography.titleSmall)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(arrivals, key = { it.id }) { arrival ->
-                    val time = java.time.Instant.ofEpochMilli(arrival.arrivedAtMs)
-                        .atZone(java.time.ZoneId.systemDefault())
-                    Column(Modifier.width(190.dp)) {
-                        Text(arrival.destination, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "%02d:%02d · ${arrival.message.ifBlank { "sin texto" }}".format(time.hour, time.minute),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            "${"%.5f".format(Locale.US, arrival.lat)}, ${"%.5f".format(Locale.US, arrival.lng)}",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
-            }
-        }
+    }
     }
 }
 
@@ -230,12 +267,15 @@ private fun LegendChip(d: TrackDay) {
 }
 
 @Composable
-private fun TripsMap(modifier: Modifier, days: List<TrackDay>, stays: List<TrackStay>, rangeKey: String) {
+private fun TripsMap(modifier: Modifier, days: List<TrackDay>, stays: List<TrackStay>, rangeKey: String, myLat: Double?, myLng: Double?) {
     val fitRef = remember { arrayOf("") }
+    var mapView by remember { mutableStateOf<org.osmdroid.views.MapView?>(null) }
+    Box(modifier.clipToBounds()) {
     AndroidView(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize().clipToBounds(),
         factory = { c: Context ->
             org.osmdroid.views.MapView(c).apply {
+                mapView = this
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 setTilesScaledToDpi(true)
@@ -277,6 +317,17 @@ private fun TripsMap(modifier: Modifier, days: List<TrackDay>, stays: List<Track
                     snippet = "${s.radiusM.toInt()} m de radio"
                 })
             }
+            if (myLat != null && myLng != null) {
+                val me = GeoPoint(myLat!!, myLng!!)
+                all.add(me)
+                mv.overlays.add(Marker(mv).apply {
+                    position = me
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    title = "Yo"
+                    // Instancia propia del ícono: no tocar el compartido o se tiñen todos los pines
+                    icon = ContextCompat.getDrawable(mv.context, org.osmdroid.library.R.drawable.marker_default)?.mutate()?.apply { setTint(0xFFE53935.toInt()) } ?: icon
+                })
+            }
             mv.invalidate()
             val fitKey = "$rangeKey-${days.size}-${stays.size}-${days.firstOrNull()?.endMs ?: 0}"
             if (all.isNotEmpty() && fitRef[0] != fitKey) {
@@ -298,6 +349,16 @@ private fun TripsMap(modifier: Modifier, days: List<TrackDay>, stays: List<Track
             mv.onDetach()
         }
     )
+        FloatingActionButton(
+            onClick = {
+                if (myLat != null && myLng != null) {
+                    mapView?.controller?.animateTo(GeoPoint(myLat!!, myLng!!))
+                    mapView?.controller?.setZoom(17.0)
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
+        ) { Text("📍") }
+    }
 }
 
 // Lunes celeste, martes rojo, miércoles amarillo, jueves azul,

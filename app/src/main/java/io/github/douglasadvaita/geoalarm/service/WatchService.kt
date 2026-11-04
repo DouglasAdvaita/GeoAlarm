@@ -61,6 +61,8 @@ class WatchService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var watching: List<Alarm> = emptyList()
     private val wasOutside = mutableMapOf<Long, Boolean>()
+    // Movimiento real detectado mientras estaba fuera: evita disparar por estar parado en el destino
+    private val hasMoved = mutableMapOf<Long, Boolean>()
     private var gpsOffNotified = false
     private var providersReceiver: BroadcastReceiver? = null
 
@@ -239,19 +241,31 @@ class WatchService : Service() {
                 val dist = res[0]
                 val inside = dist <= a.radiusMeters
                 val outside = dist > a.radiusMeters * 1.2f
-                // Primera ubicación conocida: si ya está dentro, armar para disparar
-                // en la próxima lectura (evita el caso bus: lugar creado en camino).
+                val moving = loc.hasSpeed() && loc.speed >= 1.5f
+                // Primera ubicación conocida
                 if (wasOutside[a.id] == null) {
-                    wasOutside[a.id] = true
-                    if (outside) continue
-                    // dentro en el alta: dispara igual sin exigir salida previa
-                } else if (outside) {
-                    wasOutside[a.id] = true
+                    if (outside) {
+                        wasOutside[a.id] = true
+                        hasMoved[a.id] = moving
+                    } else {
+                        // Ya está dentro al arrancar: no es un viaje, esperar salida + reentrada con movimiento
+                        wasOutside[a.id] = false
+                        hasMoved[a.id] = false
+                    }
                     continue
                 }
-                // Dentro: exige haber estado fuera antes (evita disparo instantáneo al abrir app dentro)
+                if (outside) {
+                    wasOutside[a.id] = true
+                    if (moving) hasMoved[a.id] = true
+                    continue
+                }
+                // Dentro: exige haber estado fuera antes y haberse movido (viaje real)
                 if (wasOutside[a.id] != true) {
                     // Si venía de snooze vencido y sigue dentro, espera a salir
+                    continue
+                }
+                if (hasMoved[a.id] != true) {
+                    // Sin movimiento real previo: no disparar (estaba parado en el destino)
                     continue
                 }
                 fire(a, dist, loc)
@@ -260,6 +274,7 @@ class WatchService : Service() {
                 dao.update(updated)
                 watching = watching.map { if (it.id == a.id) updated else it }
                 wasOutside[a.id] = false
+                hasMoved[a.id] = false
                 WatchState.update(true, watching.size)
                 break
             }

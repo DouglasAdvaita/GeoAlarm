@@ -16,7 +16,8 @@ data class TrackPoint(val lat: Double, val lng: Double, val atMs: Long)
 // Guarda el día como inicio absoluto + deltas (metros, rumbo, segundos).
 // Base64 binario: ~2-4 bytes por vértice. Un día normal queda muy por debajo de 10 KB.
 object TrackCodec {
-    private const val VERSION = 1
+    private const val VERSION = 2
+    private const val V1 = 1
     private const val M_PER_DEG_LAT = 110_540.0
     private const val M_PER_DEG_LNG_EQ = 111_320.0
 
@@ -28,11 +29,10 @@ object TrackCodec {
         var prev = pts[0]
         for (i in 1 until pts.size) {
             val p = pts[i]
-            val d = distanceM(prev.lat, prev.lng, p.lat, p.lng).roundToInt().coerceAtLeast(0)
-            val b = (bearingDeg(prev.lat, prev.lng, p.lat, p.lng).roundToInt() + 360) % 360
+            // V2: deltas en 1e-5 grados (~1,1 m) con zigzag: sin deriva angular acumulada.
+            out.writeSignedVarint(((p.lat - prev.lat) * 1e5).roundToInt())
+            out.writeSignedVarint(((p.lng - prev.lng) * 1e5).roundToInt())
             val dt = ((p.atMs - prev.atMs) / 1000L).coerceIn(0L, 86_400L).toInt()
-            out.writeVarint(d)
-            out.write(b)
             out.writeVarint(dt)
             prev = p
         }
@@ -46,23 +46,43 @@ object TrackCodec {
         } catch (_: IllegalArgumentException) {
             return emptyList()
         }
-        if (bytes.isEmpty() || (bytes[0].toInt() and 0xFF) != VERSION) return emptyList()
+        if (bytes.isEmpty()) return emptyList()
+        val ver = bytes[0].toInt() and 0xFF
+        if (ver != VERSION && ver != V1) return emptyList()
         val out = ArrayList<TrackPoint>()
         out.add(TrackPoint(startLat, startLng, startMs))
         var i = 1
+        if (ver == V1) {
+            var lat = startLat
+            var lng = startLng
+            var t = startMs
+            while (i < bytes.size) {
+                val dr = readVarint(bytes, i)
+                i = dr.second
+                val brg = bytes[i].toInt() and 0xFF
+                i++
+                val dt = readVarint(bytes, i)
+                i = dt.second
+                val next = destination(lat, lng, dr.first.toDouble(), brg.toDouble())
+                lat = next.first
+                lng = next.second
+                t += dt.first * 1000L
+                out.add(TrackPoint(lat, lng, t))
+            }
+            return out
+        }
         var lat = startLat
         var lng = startLng
         var t = startMs
         while (i < bytes.size) {
-            val dr = readVarint(bytes, i)
-            i = dr.second
-            val brg = bytes[i].toInt() and 0xFF
-            i++
+            val dLa = readSignedVarint(bytes, i)
+            i = dLa.second
+            val dLo = readSignedVarint(bytes, i)
+            i = dLo.second
             val dt = readVarint(bytes, i)
             i = dt.second
-            val next = destination(lat, lng, dr.first.toDouble(), brg.toDouble())
-            lat = next.first
-            lng = next.second
+            lat += dLa.first / 1e5
+            lng += dLo.first / 1e5
             t += dt.first * 1000L
             out.add(TrackPoint(lat, lng, t))
         }
@@ -133,6 +153,16 @@ object TrackCodec {
         val len = hypot(bx, by)
         if (len < 0.001) return hypot(px, py)
         return abs(px * by - py * bx) / len
+    }
+
+    private fun ByteArrayOutputStream.writeSignedVarint(value: Int) {
+        writeVarint((value shl 1) xor (value shr 31))
+    }
+
+    private fun readSignedVarint(bytes: ByteArray, start: Int): Pair<Int, Int> {
+        val r = readVarint(bytes, start)
+        val n = r.first
+        return ((n ushr 1) xor -(n and 1)) to r.second
     }
 
     private fun ByteArrayOutputStream.writeVarint(value: Int) {

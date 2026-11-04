@@ -44,6 +44,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -51,8 +53,9 @@ import io.github.douglasadvaita.geoalarm.data.Alarm
 import io.github.douglasadvaita.geoalarm.service.WatchService
 import io.github.douglasadvaita.geoalarm.service.WatchState
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, onMap: () -> Unit, onTrips: () -> Unit, onHistory: () -> Unit) {
+fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, onMap: () -> Unit, onTrips: () -> Unit, onHistory: () -> Unit, onSettings: () -> Unit) {
     val alarms by vm.alarms.collectAsState()
     val isWatching by WatchState.isWatching.collectAsState()
     val enabledCount by WatchState.enabledCount.collectAsState()
@@ -63,9 +66,12 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
     // Se asume todo lo habilitado: el conteo es habilitadas, no solo en servicio
     val countShown = if (enabledTotal > 0) enabledTotal else enabledCount
 
-    Scaffold(floatingActionButton = {
-        FloatingActionButton(onClick = onAdd) { Text("+") }
-    }) { pad ->
+    Scaffold(
+        topBar = { androidx.compose.material3.TopAppBar(title = { Text("GeoAlarm") }) },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAdd) { Text("+") }
+        }
+    ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
             StatusPill(
                 isWatching = isWatching,
@@ -85,7 +91,7 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Todo lo habilitado se vigila. Al llegar descansa hasta mañana 06:00.",
+                    "Switch por alarma = habilitada. Al llegar descansa hasta mañana 06:00.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f)
                 )
@@ -93,9 +99,10 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onMap) { Text("🗺️ Mapa") }
+                TextButton(onClick = onMap) { Text("Mapa") }
                 TextButton(onClick = onTrips) { Text("Recorridos") }
                 TextButton(onClick = onHistory) { Text("Historial") }
+                TextButton(onClick = onSettings) { Text("Ajustes") }
             }
             Spacer(Modifier.height(4.dp))
             if (alarms.isEmpty()) {
@@ -119,7 +126,7 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
 private fun StatusPill(isWatching: Boolean, count: Int, nearest: String, onToggle: () -> Unit) {
     val blink by rememberInfiniteTransition(label = "blink").animateFloat(
         initialValue = 1f, targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Reverse),
         label = "blink"
     )
     Surface(
@@ -135,17 +142,17 @@ private fun StatusPill(isWatching: Boolean, count: Int, nearest: String, onToggl
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (isWatching) "● VIGILANDO $count" else "○ DETENIDO",
+                    if (isWatching) "● VIGILANCIA ACTIVA ($count)" else "○ VIGILANCIA DETENIDA",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = if (isWatching) Modifier.alpha(blink) else Modifier
                 )
                 if (isWatching && nearest.isNotEmpty()) {
                     Text(nearest, style = MaterialTheme.typography.bodySmall)
                 } else if (!isWatching) {
-                    Text("Toca Vigilar para activar", style = MaterialTheme.typography.bodySmall)
+                    Text("Toca Activar vigilancia", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Button(onClick = onToggle) { Text(if (isWatching) "Detener" else "Vigilar") }
+            Button(onClick = onToggle) { Text(if (isWatching) "Detener vigilancia" else "Activar vigilancia") }
         }
     }
 }
@@ -174,7 +181,7 @@ private fun GpsOffInline() {
     if (gpsOn) return
     val blink by rememberInfiniteTransition(label = "gpsblink").animateFloat(
         initialValue = 1f, targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Reverse),
         label = "gpsblink"
     )
     Text(
@@ -218,13 +225,13 @@ private fun AlarmCard(
     val snoozed = a.snoozedUntil > System.currentTimeMillis()
 
     Card(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("$icon  ${a.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Switch(checked = a.enabled, onCheckedChange = { onToggle() })
+                Text("$icon  ${a.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Switch(checked = a.enabled, onCheckedChange = { onToggle() }, modifier = Modifier.semantics { contentDescription = if (a.enabled) "Alarma habilitada" else "Alarma deshabilitada" })
             }
             if (snoozed) {
                 Text("Descansa hasta mañana 06:00", style = MaterialTheme.typography.bodySmall)
@@ -233,7 +240,7 @@ private fun AlarmCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         a.message.ifBlank { "Sin nota" },
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = { editingMsg = true }) { Text("✏️") }
@@ -248,11 +255,9 @@ private fun AlarmCard(
                     TextButton(onClick = { draft = a.message; editingMsg = false }) { Text("Cancelar") }
                 }
             }
-            Row {
-                TextButton(onClick = onEditFull) { Text("Editar punto") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onEditFull) { Text("Editar") }
                 TextButton(onClick = onDelete) { Text("Borrar") }
-            }
-            Row {
                 TextButton(onClick = {
                     try {
                         val c = ctx as? android.app.Activity ?: return@TextButton
@@ -267,7 +272,7 @@ private fun AlarmCard(
                         }
                         c.startActivity(i)
                     } catch (_: Exception) {}
-                }) { Text("🔔 Probar llegada") }
+                }) { Text("Simular llegada") }
             }
         }
     }

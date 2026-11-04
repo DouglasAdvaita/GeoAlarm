@@ -18,7 +18,10 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +46,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -151,7 +157,7 @@ class AlarmRingActivity : ComponentActivity() {
                 var silenced by remember { mutableStateOf(false) }
                 Box(Modifier.fillMaxSize().padding(16.dp)) {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                     Text("¡TU PARADA!", style = MaterialTheme.typography.headlineLarge)
@@ -172,21 +178,23 @@ class AlarmRingActivity : ComponentActivity() {
                     }
                     Button(onClick = {
                         if (!silenced) {
-                            // Detener: pausa la alarma pero deja visible anuncio + mapa
+                            // Silencia sonido/vibración/voz, pero deja visible el avance hasta cerrar con X
                             silenceOnly()
                             silenced = true
                         }
                     }) {
-                        Text(if (!silenced) "Detener" else "Silenciado")
+                        Text(if (!silenced) "Silenciar" else "Silenciado")
                     }
                     } // Column
-                    androidx.compose.material3.TextButton(
+                    androidx.compose.material3.IconButton(
                         onClick = {
                             shutdown()
                             (ctx as? Activity)?.finish()
                         },
-                        modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd)
-                    ) { Text("✕") }
+                        modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).semantics { contentDescription = "Cerrar" }
+                    ) {
+                        Text("✕", style = MaterialTheme.typography.headlineSmall)
+                    }
                 } // Box
             }
         }
@@ -432,7 +440,7 @@ private fun TrackPanel(
         }
         Spacer(Modifier.height(6.dp))
         LiveMap(
-            modifier = Modifier.fillMaxWidth().height(220.dp),
+            modifier = Modifier.fillMaxWidth().height(180.dp),
             destLat = destLat,
             destLng = destLng,
             radius = radius,
@@ -457,9 +465,9 @@ private fun LiveMap(
 ) {
     var follow by remember { mutableStateOf(true) }
     var fitted by remember { mutableStateOf(false) }
-    Box(modifier) {
+    Box(modifier.clipToBounds()) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().clipToBounds(),
             factory = { c: Context ->
                 org.osmdroid.views.MapView(c).apply {
                     setTileSource(TileSourceFactory.MAPNIK)
@@ -510,21 +518,30 @@ private fun LiveMap(
                         position = me
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         title = "Yo"
+                        // Instancia propia del ícono: no tocar el compartido o se tiñen todos los pines
+                        icon = ContextCompat.getDrawable(mv.context, org.osmdroid.library.R.drawable.marker_default)?.mutate()?.apply { setTint(0xFFE53935.toInt()) } ?: icon
                     })
-                    if (!fitted) {
+                    if (!fitted && distM > 0f) {
                         fitted = true
-                        if (distM > 120f) {
-                            mv.post {
+                        when {
+                            distM in 120f..2000f -> mv.post {
                                 try {
                                     mv.zoomToBoundingBox(
                                         BoundingBox.fromGeoPoints(listOf(me, dest)), false, 140
                                     )
                                 } catch (_: Exception) {}
                             }
-                        } else {
-                            mv.controller.setZoom(17.5)
+                            distM > 2000f -> {
+                                // Simulación desde lejos: quedarse en el destino, no abarcar toda la ciudad
+                                mv.controller.setZoom(14.0)
+                                mv.controller.setCenter(dest)
+                            }
+                            else -> {
+                                mv.controller.setZoom(17.5)
+                                mv.controller.setCenter(me)
+                            }
                         }
-                    } else if (follow) {
+                    } else if (fitted && follow && distM in 1f..2000f) {
                         mv.controller.animateTo(
                             GeoPoint((myLat + destLat) / 2.0, (myLng + destLng) / 2.0)
                         )
