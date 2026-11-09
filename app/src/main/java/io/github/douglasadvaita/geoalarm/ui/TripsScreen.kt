@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -91,7 +92,7 @@ fun TripsScreen(onBack: () -> Unit) {
 
     val today = LocalDate.now()
     var anchor by remember { mutableStateOf(today) }
-    var monthMode by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(ViewMode.WEEK) }
     var tracking by remember { mutableStateOf(TrackPrefs.enabled(ctx)) }
     var exporting by remember { mutableStateOf(false) }
     var myLat by remember { mutableStateOf<Double?>(null) }
@@ -132,7 +133,11 @@ fun TripsScreen(onBack: () -> Unit) {
         }
     }
 
-    val range = if (monthMode) TrackDates.monthRange(anchor) else TrackDates.weekRange(anchor)
+    val range = when (mode) {
+        ViewMode.DAY -> TrackDates.dayRange(anchor)
+        ViewMode.WEEK -> TrackDates.weekRange(anchor)
+        ViewMode.MONTH -> TrackDates.monthRange(anchor)
+    }
     val fromKey = range.first
     val toKey = range.second
     val days by remember(fromKey, toKey) { dao.observeDays(fromKey, toKey) }
@@ -140,13 +145,19 @@ fun TripsScreen(onBack: () -> Unit) {
     val stays by remember(fromKey, toKey) { dao.observeStays(fromKey, toKey) }
         .collectAsState(initial = emptyList())
 
-    val label = if (monthMode) {
-        TrackDates.monthName(anchor) + " " + anchor.year
-    } else {
-        val monday = TrackDates.dateOf(fromKey)
-        val sunday = TrackDates.dateOf(toKey)
-        "${monday.dayOfMonth} ${TrackDates.monthName(monday).take(3)} – " +
-            "${sunday.dayOfMonth} ${TrackDates.monthName(sunday).take(3)}"
+    val label = when (mode) {
+        ViewMode.DAY -> {
+            val d = TrackDates.dateOf(fromKey)
+            TrackDates.weekdayShort(fromKey).replaceFirstChar { it.uppercase() } +
+                " ${d.dayOfMonth} ${TrackDates.monthName(d).take(3)}"
+        }
+        ViewMode.MONTH -> TrackDates.monthName(anchor) + " " + anchor.year
+        ViewMode.WEEK -> {
+            val monday = TrackDates.dateOf(fromKey)
+            val sunday = TrackDates.dateOf(toKey)
+            "${monday.dayOfMonth} ${TrackDates.monthName(monday).take(3)} – " +
+                "${sunday.dayOfMonth} ${TrackDates.monthName(sunday).take(3)}"
+        }
     }
 
     val hasLocation = ContextCompat.checkSelfPermission(
@@ -154,7 +165,11 @@ fun TripsScreen(onBack: () -> Unit) {
     ) == PackageManager.PERMISSION_GRANTED
 
     fun shift(dir: Long) {
-        anchor = if (monthMode) anchor.plusMonths(dir) else anchor.plusDays(7 * dir)
+        anchor = when (mode) {
+            ViewMode.DAY -> anchor.plusDays(dir)
+            ViewMode.WEEK -> anchor.plusDays(7 * dir)
+            ViewMode.MONTH -> anchor.plusMonths(dir)
+        }
     }
 
     fun toggleTracking(on: Boolean) {
@@ -222,13 +237,20 @@ fun TripsScreen(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
             )
+            TextButton(onClick = { mode = ViewMode.DAY; anchor = today }) { Text("Hoy") }
             TextButton(onClick = { shift(1) }) { Text("›") }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { monthMode = !monthMode; anchor = today }) {
-                Text(if (monthMode) "Ver semana" else "Ver mes")
+            for (m in listOf(ViewMode.DAY, ViewMode.WEEK, ViewMode.MONTH)) {
+                val on = mode == m
+                TextButton(onClick = { mode = m }) {
+                    Text(
+                        m.label,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            TextButton(onClick = { anchor = today }) { Text("Hoy") }
             Spacer(Modifier.weight(1f))
             TextButton(enabled = !exporting, onClick = { export() }) {
                 Text(if (exporting) "Exportando…" else "Exportar GPX")
@@ -363,6 +385,12 @@ private fun TripsMap(modifier: Modifier, days: List<TrackDay>, stays: List<Track
 
 // Lunes celeste, martes rojo, miércoles amarillo, jueves azul,
 // viernes rosa, sábado gris, domingo naranja
+private enum class ViewMode(val label: String) {
+    DAY("Día"),
+    WEEK("Semana"),
+    MONTH("Mes")
+}
+
 private fun dayColor(dayKey: Int): Int = when (TrackDates.weekdayOf(dayKey)) {
     DayOfWeek.MONDAY -> 0xFF4FC3F7.toInt()
     DayOfWeek.TUESDAY -> 0xFFE53935.toInt()

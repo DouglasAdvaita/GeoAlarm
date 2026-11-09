@@ -17,6 +17,8 @@ object TrackDates {
     fun dateOf(key: Int): LocalDate =
         LocalDate.of(key / 10000, (key / 100) % 100, key % 100)
 
+    fun dayRange(anyDay: LocalDate): Pair<Int, Int> = dayKey(anyDay) to dayKey(anyDay)
+
     fun weekRange(anyDay: LocalDate): Pair<Int, Int> {
         val monday = anyDay.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         return dayKey(monday) to dayKey(monday.plusDays(6))
