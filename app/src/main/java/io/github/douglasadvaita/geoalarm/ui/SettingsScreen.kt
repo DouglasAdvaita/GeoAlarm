@@ -19,8 +19,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import java.io.File
 import io.github.douglasadvaita.geoalarm.util.ReleaseInfo
 import io.github.douglasadvaita.geoalarm.util.UpdateChecker
 import kotlinx.coroutines.launch
@@ -34,6 +40,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var latest by remember { mutableStateOf<ReleaseInfo?>(null) }
     var busy by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(-1) }
+    var comentario by remember { mutableStateOf("") }
     val curCode = remember { UpdateChecker.currentCode(ctx) }
     val curName = remember { UpdateChecker.currentName(ctx) }
 
@@ -87,6 +94,76 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            Spacer(Modifier.height(16.dp))
+
+            // ---- Comentarios por correo ----
+            HorizontalDivider(modifier = Modifier.padding(top = 6.dp))
+            Text("Comentarios", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = comentario, onValueChange = { comentario = it },
+                label = { Text("Tu comentario") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    val asunto = "Comentario GeoAlarm"
+                    val cuerpo = comentario
+                    val uri = Uri.parse(
+                        "mailto:carterapersonalizada.uy@gmail.com" +
+                            "?subject=" + Uri.encode(asunto) +
+                            "&body=" + Uri.encode(cuerpo)
+                    )
+                    try {
+                        ctx.startActivity(Intent(Intent.ACTION_SENDTO, uri))
+                    } catch (e: Exception) {
+                        val alt = Intent(Intent.ACTION_SEND).apply {
+                            type = "message/rfc822"
+                            putExtra(Intent.EXTRA_EMAIL, arrayOf("carterapersonalizada.uy@gmail.com"))
+                            putExtra(Intent.EXTRA_SUBJECT, asunto)
+                            putExtra(Intent.EXTRA_TEXT, cuerpo)
+                        }
+                        try { ctx.startActivity(Intent.createChooser(alt, "Enviar comentario")) }
+                        catch (e2: Exception) {
+                            Toast.makeText(ctx, "No hay app de correo instalada.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                enabled = comentario.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Enviar comentario") }
+
+            Spacer(Modifier.height(16.dp))
+
+            // ---- Compartir la app (APK) ----
+            HorizontalDivider(modifier = Modifier.padding(top = 6.dp))
+            Text("Compartir", style = MaterialTheme.typography.titleMedium)
+            Button(
+                onClick = {
+                    try {
+                        val src = File(ctx.applicationInfo.sourceDir)
+                        val dst = File(ctx.cacheDir, "geoalarm-compartir.apk")
+                        src.copyTo(dst, overwrite = true)
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            ctx, "${ctx.packageName}.fileprovider", dst,
+                        )
+                        val i = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/vnd.android.package-archive"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        ctx.startActivity(Intent.createChooser(i, "Compartir GeoAlarm (APK)"))
+                    } catch (e: Exception) {
+                        val i = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "Probá GeoAlarm (alarmas por geolocalización).")
+                        }
+                        ctx.startActivity(Intent.createChooser(i, "Compartir GeoAlarm"))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Compartir la app (APK)") }
+
             Spacer(Modifier.height(16.dp))
             OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Volver") }
         }

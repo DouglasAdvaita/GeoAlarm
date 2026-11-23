@@ -29,14 +29,28 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import io.github.douglasadvaita.geoalarm.data.AppDatabase
-import io.github.douglasadvaita.geoalarm.util.TrackDates
+import io.github.douglasadvaita.geoalarm.data.TrackArrival
+import io.github.douglasadvaita.geoalarm.data.TrotSession
+import io.github.douglasadvaita.geoalarm.util.TrotFormat
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+// Una fila común para alarmas y trotes: se ordenan juntos por fecha
+private data class HistoryRow(
+    val key: String,
+    val atMs: Long,
+    val title: String,
+    val detail: String,
+    val coords: String,
+    val arrival: TrackArrival? = null,
+    val trot: TrotSession? = null
+)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -45,26 +59,82 @@ fun HistoryScreen(onBack: () -> Unit) {
     val dao = remember { AppDatabase.get(ctx).trackDao() }
     val arrivals by remember { dao.observeAllArrivals() }
         .collectAsState(initial = emptyList())
+    val trots by remember { dao.observeAllTrots() }
+        .collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var exporting by remember { mutableStateOf(false) }
+
+    val rows = remember(arrivals, trots) {
+        buildList {
+            arrivals.forEach { a ->
+                add(
+                    HistoryRow(
+                        key = "alarma-${a.id}",
+                        atMs = a.arrivedAtMs,
+                        title = a.destination,
+                        detail = "Nota: ${a.message.ifBlank { "sin texto" }}",
+                        coords = "${"%.5f".format(Locale.US, a.lat)}, ${"%.5f".format(Locale.US, a.lng)}",
+                        arrival = a
+                    )
+                )
+            }
+            trots.forEach { t ->
+                add(
+                    HistoryRow(
+                        key = "trote-${t.id}",
+                        atMs = t.startMs,
+                        title = "🏃 ${t.startPlace.ifBlank { "Trote" }}",
+                        detail = TrotFormat.summary(t.distanceM, t.durationMs),
+                        coords = "${"%.5f".format(Locale.US, t.startLat)}, ${"%.5f".format(Locale.US, t.startLng)}",
+                        trot = t
+                    )
+                )
+            }
+        }.sortedByDescending { it.atMs }
+    }
 
     fun export() {
         exporting = true
         scope.launch {
+            val fmtDate = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+            val fmtTime = DateTimeFormatter.ofPattern("HH:mm:ss")
+            fun csv(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
+            fun dateTime(ms: Long): Pair<String, String> =
+                Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).let {
+                    it.format(fmtDate) to it.format(fmtTime)
+                }
+
             val sb = StringBuilder()
-            sb.append("id,dayKey,destino,nota,lat,lng,arrivedAtMs\n")
-            for (a in arrivals) {
-                sb.append(a.id).append(',')
-                sb.append(a.dayKey).append(',')
-                sb.append('"').append(a.destination.replace("\"", "\"\"")).append('"').append(',')
-                sb.append('"').append(a.message.replace("\"", "\"\"")).append('"').append(',')
-                sb.append(a.lat).append(',')
-                sb.append(a.lng).append(',')
-                sb.append(a.arrivedAtMs).append('\n')
+            // "tipo" permite filtrar en Excel: Alarma / Trote
+            sb.append("tipo,fecha,hora,descripcion,tiempo_s,distancia_m,velocidad_kmh,lat,lng,id\n")
+            for (r in rows) {
+                val (date, time) = dateTime(r.atMs)
+                val a = r.arrival
+                val t = r.trot
+                sb.append(csv(if (a != null) "Alarma" else "Trote")).append(',')
+                sb.append(date).append(',').append(time).append(',')
+                when {
+                    a != null -> {
+                        sb.append(csv("${a.destination} | ${a.message}")).append(',')
+                        sb.append(',').append(',').append(',').append(',')
+                        sb.append(a.lat).append(',').append(a.lng).append(',').append(a.id).append('\n')
+                    }
+                    t != null -> {
+                        val kmh = if (t.durationMs > 0L)
+                            t.distanceM / 1000.0 / (t.durationMs / 3_600_000.0) else 0.0
+                        sb.append(csv(t.startPlace)).append(',')
+                        sb.append(String.format(Locale.US, "%.1f", t.durationMs / 1000.0)).append(',')
+                        sb.append(String.format(Locale.US, "%.1f", t.distanceM)).append(',')
+                        sb.append(String.format(Locale.US, "%.2f", kmh)).append(',')
+                        sb.append(t.startLat).append(',').append(t.startLng).append(',').append(t.id).append('\n')
+                    }
+                }
             }
             val file = withContext(Dispatchers.IO) {
                 val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
-                File(dir, "historial_alarmas.csv").apply { writeText(sb.toString()) }
+                File(dir, "historial.csv").apply {
+                    writeText("\uFEFF" + sb.toString(), Charsets.UTF_8)
+                }
             }
             exporting = false
             try {
@@ -72,6 +142,7 @@ fun HistoryScreen(onBack: () -> Unit) {
                 val i = Intent(Intent.ACTION_SEND).apply {
                     type = "text/csv"
                     putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "historial.csv")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 ctx.startActivity(Intent.createChooser(i, "Exportar historial"))
@@ -84,8 +155,12 @@ fun HistoryScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             androidx.compose.material3.TopAppBar(
-                title = { Text("Historial de alarmas") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("←", style = MaterialTheme.typography.headlineMedium) } },
+                title = { Text("Historial") },
+                navigationIcon = {
+                    TextButton(onClick = onBack) {
+                        Text("←", style = MaterialTheme.typography.headlineMedium)
+                    }
+                },
                 actions = {
                     TextButton(enabled = !exporting, onClick = { export() }) {
                         Text(if (exporting) "Exportando…" else "Exportar")
@@ -96,47 +171,41 @@ fun HistoryScreen(onBack: () -> Unit) {
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
             Text(
-                "${arrivals.size} sonada${if (arrivals.size == 1) "" else "s"} registrada${if (arrivals.size == 1) "" else "s"}",
+                "${arrivals.size} alarma${if (arrivals.size == 1) "" else "s"} · " +
+                    "${trots.size} trote${if (trots.size == 1) "" else "s"}",
                 style = MaterialTheme.typography.bodySmall
             )
-        Spacer(Modifier.height(8.dp))
-        if (arrivals.isEmpty()) {
-            Text("Sin alarmas sonadas todavía. Se guarda cada sonada con destino, nota, fecha y hora.")
-        } else {
-            LazyColumn {
-                items(arrivals, key = { it.id }) { arrival ->
-                    val day = TrackDates.dateOf(arrival.dayKey)
-                    val time = Instant.ofEpochMilli(arrival.arrivedAtMs)
-                        .atZone(ZoneId.systemDefault())
-                    Card(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                        Column(Modifier.padding(14.dp)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    arrival.destination,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    "%02d/%02d · %02d:%02d".format(
-                                        Locale.US, day.dayOfMonth, day.monthValue, time.hour, time.minute
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
+            Spacer(Modifier.height(8.dp))
+            if (rows.isEmpty()) {
+                Text("Sin registros todavía. Las alarmas sonadas y los trotes detenidos se guardan acá.")
+            } else {
+                LazyColumn {
+                    items(rows, key = { it.key }) { row ->
+                        val time = Instant.ofEpochMilli(row.atMs).atZone(ZoneId.systemDefault())
+                        Card(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Column(Modifier.padding(14.dp)) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        row.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        "%02d/%02d · %02d:%02d".format(
+                                            Locale.US, time.dayOfMonth, time.monthValue,
+                                            time.hour, time.minute
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(row.detail, style = MaterialTheme.typography.bodySmall)
+                                Text(row.coords, style = MaterialTheme.typography.labelSmall)
                             }
-                            Text(
-                                "Nota: ${arrival.message.ifBlank { "sin texto" }}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "${"%.5f".format(Locale.US, arrival.lat)}, ${"%.5f".format(Locale.US, arrival.lng)}",
-                                style = MaterialTheme.typography.labelSmall
-                            )
                         }
                     }
                 }
             }
         }
-    }
     }
 }

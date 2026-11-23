@@ -12,6 +12,7 @@ object Notifications {
     const val CH_ALARM = "alarm"
     const val CH_REMINDER = "reminder"
     const val CH_GPS = "gps_off"
+    const val CH_TROT = "trot"
 
     fun ensureChannels(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -37,6 +38,9 @@ object Notifications {
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_GPS, "Sin GPS", NotificationManager.IMPORTANCE_HIGH)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_TROT, "Trote", NotificationManager.IMPORTANCE_LOW)
         )
     }
 }

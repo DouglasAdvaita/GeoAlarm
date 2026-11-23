@@ -29,6 +29,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_arrivals ORDER BY arrivedAtMs DESC")
     fun observeAllArrivals(): Flow<List<TrackArrival>>
 
+    @Query("SELECT * FROM trots ORDER BY startMs DESC")
+    fun observeAllTrots(): Flow<List<TrotSession>>
+
     @Query("SELECT * FROM track_points WHERE dayKey = :dayKey ORDER BY atMs")
     suspend fun getPoints(dayKey: Int): List<TrackPointRecord>
 
@@ -43,6 +46,9 @@ interface TrackDao {
 
     @Insert
     suspend fun insertArrival(arrival: TrackArrival)
+
+    @Insert
+    suspend fun insertTrot(trot: TrotSession)
 
     @Query("DELETE FROM track_points WHERE dayKey = :dayKey")
     suspend fun deletePoints(dayKey: Int)

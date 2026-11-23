@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,9 +50,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import io.github.douglasadvaita.geoalarm.data.Alarm
+import io.github.douglasadvaita.geoalarm.service.TrotService
+import io.github.douglasadvaita.geoalarm.service.TrotState
 import io.github.douglasadvaita.geoalarm.service.WatchService
 import io.github.douglasadvaita.geoalarm.service.WatchState
+import io.github.douglasadvaita.geoalarm.util.TrotFormat
+import kotlinx.coroutines.delay
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -67,7 +73,12 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
     val countShown = if (enabledTotal > 0) enabledTotal else enabledCount
 
     Scaffold(
-        topBar = { androidx.compose.material3.TopAppBar(title = { Text("GeoAlarm") }) },
+        topBar = {
+            androidx.compose.material3.TopAppBar(
+                title = { Text("GeoAlarm") },
+                actions = { TrotButton() }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onAdd) { Text("+") }
         }
@@ -118,6 +129,54 @@ fun ListScreen(vm: AlarmViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit, on
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TrotButton() {
+    val ctx = LocalContext.current
+    val trot by TrotState.ui.collectAsState()
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(trot.active) {
+        while (trot.active) {
+            now = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
+    Column(
+        modifier = Modifier.padding(end = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        TextButton(
+            onClick = {
+                val intent = Intent(ctx, TrotService::class.java).apply {
+                    action = if (trot.active) TrotService.ACTION_STOP else TrotService.ACTION_START
+                }
+                if (trot.active) {
+                    ctx.startService(intent)
+                } else {
+                    ContextCompat.startForegroundService(ctx, intent)
+                }
+            }
+        ) {
+            Text(
+                if (trot.active) "Detener" else "Trotar",
+                fontWeight = FontWeight.Bold,
+                color = if (trot.active) MaterialTheme.colorScheme.error else Color.Unspecified
+            )
+        }
+        val small = when {
+            trot.active -> TrotFormat.summary(trot.distanceM, now - trot.startMs)
+            trot.lastDurationMs > 0L -> "Último: " + TrotFormat.summary(trot.lastDistanceM, trot.lastDurationMs)
+            else -> ""
+        }
+        if (small.isNotEmpty()) {
+            Text(
+                small,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
         }
     }
 }
